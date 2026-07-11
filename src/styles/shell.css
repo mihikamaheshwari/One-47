@@ -2,14 +2,20 @@
 .nav {
   position: fixed; top: 0; left: 0; right: 0; z-index: 50;
   height: var(--nav-h); display: flex; align-items: center;
-  transition: background .4s, border-color .4s, backdrop-filter .4s;
+  transition: border-color .4s;
   border-bottom: 1px solid transparent;
 }
-.nav-solid {
+/* the glass backdrop lives on a pseudo-element: backdrop-filter directly on
+   .nav would become the containing block for the fixed .nav-links overlay,
+   collapsing the mobile menu to navbar height and spilling links over the page */
+.nav::before {
+  content: ""; position: absolute; inset: 0; z-index: -1;
   background: rgba(5, 5, 10, 0.72);
   backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
-  border-bottom-color: var(--stroke);
+  opacity: 0; transition: opacity .4s;
 }
+.nav-solid::before { opacity: 1; }
+.nav-solid { border-bottom-color: var(--stroke); }
 .nav-inner { display: flex; align-items: center; justify-content: space-between; }
 .brand { font-size: 24px; font-weight: 800; display: flex; align-items: baseline; gap: 2px; position: relative; z-index: 60; }
 .brand-o {
@@ -35,8 +41,11 @@
 .nav-link:hover::after, .nav-link.active::after { right: 0; }
 .nav-admin { color: var(--gold); opacity: .85; }
 .nav-cta { padding: 11px 22px; font-size: 11px; }
-.burger { display: none; background: none; border: 0; z-index: 60; }
+.burger { display: none; background: none; border: 0; z-index: 60; padding: 8px; }
 .burger span { display: block; width: 24px; height: 2px; background: var(--ink); margin: 5px 0; border-radius: 2px; transition: .3s; }
+.burger.open span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+.burger.open span:nth-child(2) { opacity: 0; }
+.burger.open span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
 
 @media (max-width: 960px) {
   .burger { display: block; }

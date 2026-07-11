@@ -25,6 +25,9 @@
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html { scroll-behavior: smooth; }
+/* NOTE: never put overflow-x on <html> — clip/hidden on the root makes the
+   document unscrollable in Chromium. body's overflow-x below propagates to
+   the viewport and handles stray horizontal overflow on its own. */
 html, body { overscroll-behavior-y: none; }
 body {
   background: var(--bg);
@@ -252,12 +255,20 @@ section.block { padding: 110px 0; position: relative; }
 
 /* ambient page glow */
 .ambient { position: fixed; inset: 0; pointer-events: none; z-index: 0; }
+/* soft falloff baked into gradients — filter: blur() on huge fixed layers
+   renders as banding/ghost squares on many mobile GPUs */
 .ambient::before, .ambient::after {
-  content: ""; position: absolute; width: 60vw; height: 60vw; border-radius: 50%;
-  filter: blur(120px); opacity: .14;
+  content: ""; position: absolute; width: 70vw; height: 70vw; border-radius: 50%;
+  opacity: .14;
 }
-.ambient::before { background: var(--neon-pink); top: -30vw; right: -20vw; opacity: .18; }
-.ambient::after { background: var(--violet); bottom: -35vw; left: -25vw; }
+.ambient::before {
+  background: radial-gradient(circle, var(--neon-pink) 0%, rgba(47,125,255,.4) 32%, transparent 62%);
+  top: -30vw; right: -20vw; opacity: .16;
+}
+.ambient::after {
+  background: radial-gradient(circle, var(--violet) 0%, rgba(124,92,255,.4) 32%, transparent 62%);
+  bottom: -35vw; left: -25vw;
+}
 
 /* cursor spotlight */
 #cursor-glow {
@@ -350,3 +361,27 @@ body.scroll-fast .h-section, body.scroll-fast .hero-title {
   .tbl { font-size: 13px; }
   .tbl th, .tbl td { padding: 10px 9px; }
 }
+
+/* ================= TOUCH DEVICES — kill sticky hover states =================
+   On phones a tap latches :hover until the next tap, leaving cards stuck
+   mid-effect. Neutralize every stateful hover under (hover: none). */
+@media (hover: none) {
+  .glass-hover:hover { transform: none; border-color: var(--stroke); box-shadow: none; }
+  .hud:hover::before, .hud:hover::after { width: 20px; height: 20px; opacity: 1; }
+  .btn-gold:hover, .btn-neon:hover { transform: none; }
+  .btn:hover::after { transform: translateX(-120%); transition: none; }
+  .btn-ghost:hover { border-color: var(--stroke); color: var(--ink); box-shadow: none; }
+}
+
+/* iOS zooms the page when focusing inputs under 16px */
+@media (max-width: 720px) {
+  .field input, .field select, .field textarea { font-size: 16px; }
+  /* gentler slide-in distance so nothing pokes past the viewport edge */
+  .reveal.rv-left { transform: translateX(-36px); }
+  .reveal.rv-right { transform: translateX(36px); }
+  .reveal.in { transform: none; }
+}
+
+/* modals must fit small screens */
+.modal-back { overflow-y: auto; }
+.modal-back > * { max-height: 88dvh; overflow-y: auto; }

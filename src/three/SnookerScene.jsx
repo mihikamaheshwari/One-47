@@ -9,9 +9,76 @@
  *   0.75–0.92  black ball rolls into the lens (fills the frame)
  *   0.85–1.00  DOM crossfade: ball silhouette becomes the "O" of ONE47 (in Home.jsx)
  */
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+
+/* Belt-and-braces canvas sizing: R3F's built-in measure can miss container
+   size changes on phones (URL-bar collapse, rotation, post-load width settle),
+   leaving a stale, smaller canvas pinned to the top-left. This watchdog lives
+   in the REGULAR React tree (never inside the Canvas — the R3F reconciler's
+   first commit is rAF-driven and can be starved on phones), re-applies the
+   real container size on every resize signal, and forces a frame even while
+   the frameloop is paused. */
+function useCanvasAutoResize(hostRef, stateRef) {
+  useEffect(() => {
+    let timer = 0;
+    const apply = () => {
+      timer = 0;
+      const host = hostRef.current;
+      const canvas = host?.querySelector('canvas');
+      if (!host || !canvas) return;
+      const w = host.clientWidth, h = host.clientHeight;
+      if (!w || !h) return;
+      if (Math.abs(canvas.clientWidth - w) <= 1 && Math.abs(canvas.clientHeight - h) <= 1) return;
+      const s = stateRef.current;
+      if (s) {
+        // straight to the renderer + camera (canvas style included), then
+        // sync the store — the store path alone can defer past first paint
+        s.gl.setSize(w, h, true);
+        if (s.camera?.isPerspectiveCamera) {
+          s.camera.aspect = w / h;
+          s.camera.updateProjectionMatrix();
+        }
+        s.setSize(w, h);
+        s.invalidate();
+        if (typeof s.advance === 'function') s.advance(performance.now(), true);
+      } else {
+        // GL hasn't booted yet (first frame starved): size the raw canvas so
+        // nothing shows letterboxed; R3F adopts the true size when it boots
+        const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+        canvas.style.width = w + 'px';
+        canvas.style.height = h + 'px';
+        canvas.width = Math.round(w * dpr);
+        canvas.height = Math.round(h * dpr);
+      }
+    };
+    // setTimeout, NOT requestAnimationFrame: rAF is suspended in throttled
+    // tabs and mid-rotation — exactly when this correction is needed
+    const schedule = () => { if (!timer) timer = setTimeout(apply, 60); };
+    const ro = new ResizeObserver(schedule);
+    if (hostRef.current) ro.observe(hostRef.current);
+    window.addEventListener('resize', schedule);
+    window.addEventListener('orientationchange', schedule);
+    document.addEventListener('visibilitychange', schedule);
+    // post-load settle: phones often finalize viewport size (URL bar, zoom)
+    // a moment after first paint without firing any resize signal
+    const settles = [setTimeout(apply, 120), setTimeout(apply, 500), setTimeout(apply, 1500)];
+    // last-resort safety net: some environments drop resize signals entirely;
+    // this is a few no-op clientWidth reads per second when sizes match
+    const guard = setInterval(apply, 1000);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', schedule);
+      window.removeEventListener('orientationchange', schedule);
+      document.removeEventListener('visibilitychange', schedule);
+      if (timer) clearTimeout(timer);
+      settles.forEach(clearTimeout);
+      clearInterval(guard);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+}
 
 const BALL_R = 0.052;
 const BED_Y = 0.82;
@@ -348,8 +415,9 @@ function Choreography({ progressRef }) {
       flash.current.intensity = fx > 0 && fx < 1 ? Math.sin(Math.min(fx * 2.5, 1) * Math.PI) * 70 * (1 - fx) : 0;
     }
     const punch = clamp01((p - 0.395) / 0.1);
-    // portrait phones need a wider lens to keep the table in frame
-    const baseFov = camera.aspect < 0.75 ? 62 : camera.aspect < 1 ? 52 : 40;
+    // portrait: modest lens widening only — big fov makes the table recede
+    const aspect = camera.aspect;
+    const baseFov = aspect < 0.6 ? 56 : aspect < 0.75 ? 52 : aspect < 1 ? 47 : 40;
     const targetFov = baseFov + (punch > 0 && punch < 1 ? Math.sin(punch * Math.PI) * 7 : 0);
     if (Math.abs(camera.fov - targetFov) > 0.05) {
       camera.fov = targetFov;
@@ -393,6 +461,15 @@ function Choreography({ progressRef }) {
       camera.position.x += Math.sin(t * 0.3) * 0.15;
       camera.position.z += Math.cos(t * 0.25) * 0.15;
     }
+
+    /* portrait: dolly the camera in toward the subject — this is what keeps
+       the table filling a narrow frame instead of shrinking into a corner.
+       Fade the dolly out for the final ball-to-lens phase: there the look
+       target sits at the lens, and dollying toward it shoves the camera
+       into the table geometry. */
+    const squeezeBase = aspect < 0.6 ? 0.32 : aspect < 0.8 ? 0.24 : aspect < 1 ? 0.14 : 0;
+    const squeeze = squeezeBase * (1 - clamp01((p - 0.62) / 0.14));
+    if (squeeze > 0.001) camera.position.lerp(tmp.look, squeeze);
 
     camera.lookAt(tmp.look);
   });
@@ -457,14 +534,19 @@ function Choreography({ progressRef }) {
 }
 
 export default function SnookerScene({ progressRef, active = true }) {
+  const hostRef = useRef(null);
+  const stateRef = useRef(null);
+  useCanvasAutoResize(hostRef, stateRef);
   return (
+    <div ref={hostRef} style={{ position: 'absolute', inset: 0 }}>
     <Canvas
       dpr={[1, 1.5]}
-      shadows
+      shadows="percentage"
       frameloop={active ? 'always' : 'never'}
       camera={{ fov: 40, position: [7, 4.8, 7], near: 0.05, far: 60 }}
       gl={{ antialias: true, powerPreference: 'high-performance' }}
       style={{ position: 'absolute', inset: 0 }}
+      onCreated={(state) => { stateRef.current = state; }}
     >
       <color attach="background" args={['#04030a']} />
       <fog attach="fog" args={['#04030a', 9, 26]} />
@@ -478,5 +560,6 @@ export default function SnookerScene({ progressRef, active = true }) {
       <Dust />
       <Choreography progressRef={progressRef} />
     </Canvas>
+    </div>
   );
 }

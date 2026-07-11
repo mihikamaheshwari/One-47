@@ -8,9 +8,13 @@ const CAN_HOVER = typeof window !== 'undefined' && window.matchMedia('(hover: ho
 export function useRevealObserver(deps = []) {
   useEffect(() => {
     const els = document.querySelectorAll('.reveal:not(.in), .stag:not(.in)');
+    if (!('IntersectionObserver' in window)) {
+      els.forEach((el) => el.classList.add('in'));
+      return;
+    }
     const io = new IntersectionObserver(
       (entries) => entries.forEach((e) => e.isIntersecting && e.target.classList.add('in')),
-      { threshold: 0.12 }
+      { threshold: 0.06, rootMargin: '0px 0px 60px 0px' }
     );
     els.forEach((el) => io.observe(el));
     return () => io.disconnect();
@@ -217,23 +221,53 @@ export function Nav() {
   }, []);
   useEffect(() => { setOpen(false); window.scrollTo(0, 0); }, [loc.pathname]);
 
+  // lock page scroll behind the mobile menu overlay — and guarantee release:
+  // the cleanup runs on every close path (link tap, route change, resize, esc)
+  useEffect(() => {
+    if (!open) return;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = ''; };
+  }, [open]);
+
+  // never leave the menu (and its scroll lock) stuck: close it when the
+  // viewport grows past the burger breakpoint (matchMedia AND resize — some
+  // environments only fire one of them) or on Escape
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 961px)');
+    const closeIfDesktop = () => { if (window.innerWidth > 960) setOpen(false); };
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    mq.addEventListener ? mq.addEventListener('change', closeIfDesktop) : mq.addListener(closeIfDesktop);
+    window.addEventListener('resize', closeIfDesktop);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      mq.removeEventListener ? mq.removeEventListener('change', closeIfDesktop) : mq.removeListener(closeIfDesktop);
+      window.removeEventListener('resize', closeIfDesktop);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, []);
+
+  const close = () => setOpen(false);
+
   return (
     <header className={`nav ${scrolled ? 'nav-solid' : ''}`}>
       <div className="container nav-inner">
-        <Link to="/" className="brand display">
+        <Link to="/" className="brand display" onClick={close}>
           <span className="brand-o">O</span>NE<span className="gold">47</span>
           <span className="brand-sub">CLUB &amp; CAFE</span>
         </Link>
-        <nav className={`nav-links ${open ? 'open' : ''}`}>
+        <nav
+          className={`nav-links ${open ? 'open' : ''}`}
+          onClick={(e) => { if (e.target === e.currentTarget) close(); }}
+        >
           {LINKS.map((l) => (
-            <NavLink key={l.to} to={l.to} end={l.to === '/'}
+            <NavLink key={l.to} to={l.to} end={l.to === '/'} onClick={close}
               className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
               {l.label}
             </NavLink>
           ))}
-          <Link to="/booking" className="btn btn-gold nav-cta">Book Now</Link>
+          <Link to="/booking" className="btn btn-gold nav-cta" onClick={close}>Book Now</Link>
         </nav>
-        <button className="burger" onClick={() => setOpen(!open)} aria-label="Menu">
+        <button className={`burger ${open ? 'open' : ''}`} onClick={() => setOpen(!open)} aria-label="Menu" aria-expanded={open}>
           <span /><span /><span />
         </button>
       </div>
